@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Processamento de Imagem</title>
+</head>
+<body>
+    <h1>Imagem Processada</h1>
+    <img src="{{ url_for('uploaded_file', filename=filename) }}" alt="Processed Image">
+    <h2>Textos Detectados:</h2>
+    <ul>
+        {% for text, confidence in texts %}
+            <li>
+                <strong>Texto:</strong> {{ text }} <br>
+                <strong>Confiança:</strong> {{ "%.2f"|format(confidence * 100) }}%
+            </li>
+        {% endfor %}
+    </ul>
+</body>
+</html>
