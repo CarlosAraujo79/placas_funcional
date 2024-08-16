@@ -1,46 +1,30 @@
-from flask import Flask, render_template, request, redirect, url_for, send_from_directory
+import streamlit as st
 import os
 import cv2
 import pytesseract
 import matplotlib.pyplot as plt
-from werkzeug.utils import secure_filename
 from ultralytics import YOLO
-
-# Configuração básica do Flask
-app = Flask(__name__)
-app.config['UPLOAD_FOLDER'] = 'uploads'
-app.config['ALLOWED_EXTENSIONS'] = {'png', 'jpg', 'jpeg', 'gif'}
+from PIL import Image
+import numpy as np
 
 # Função para verificar as extensões permitidas
-def allowed_file(filename):
-    return '.' in filename and filename.rsplit('.', 1)[1].lower() in app.config['ALLOWED_EXTENSIONS']
+ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif'}
 
+def allowed_file(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+# Carregar o modelo
 model = YOLO('best_license_plate_model.pt')
 
-# Rota principal - Upload da imagem
-@app.route('/', methods=['GET', 'POST'])
-def upload_file():
-    if request.method == 'POST':
-        if 'file' not in request.files:
-            return redirect(request.url)
-        file = request.files['file']
-        if file.filename == '':
-            return redirect(request.url)
-        if file and allowed_file(file.filename):
-            filename = secure_filename(file.filename)
-            filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-            file.save(filepath)
-            return redirect(url_for('process_image', filename=filename))
-    return render_template('upload.html')
+def process_image(image):
+    # Converter a imagem do PIL para formato que o OpenCV pode manipular
+    image_cv = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
 
-# Rota para processar a imagem e mostrar o resultado
-@app.route('/process/<filename>')
-def process_image(filename):
-    image_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-    results = model.predict(image_path, device='cpu')
+    # Realizar a predição na imagem
+    results = model.predict(image_cv, device='cpu')
 
-    image = cv2.imread(image_path)
-    image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    # Converter a imagem de volta para RGB para exibição no Streamlit
+    image_rgb = cv2.cvtColor(image_cv, cv2.COLOR_BGR2RGB)
 
     detected_texts = []
 
@@ -48,21 +32,30 @@ def process_image(filename):
         for box in result.boxes:
             x1, y1, x2, y2 = map(int, box.xyxy[0])
             confidence = box.conf[0]
-            cv2.rectangle(image, (x1, y1), (x2, y2), (0, 255, 0), 2)
-            cv2.putText(image, f'{confidence*100:.2f}%', (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 0, 0), 2)
-            roi = image[y1:y2, x1:x2]
+            cv2.rectangle(image_rgb, (x1, y1), (x2, y2), (0, 255, 0), 2)
+            cv2.putText(image_rgb, f'{confidence*100:.2f}%', (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 0, 0), 2)
+            roi = image_rgb[y1:y2, x1:x2]
             text = pytesseract.image_to_string(roi, config='--psm 6')
             detected_texts.append((text, confidence))
 
-    processed_image_path = os.path.join(app.config['UPLOAD_FOLDER'], 'processed_' + filename)
-    plt.imsave(processed_image_path, image)
+    return image_rgb, detected_texts
 
-    return render_template('process.html', filename='processed_' + filename, texts=detected_texts)
+# Interface do Streamlit
+st.title("Detecção de Placas de Carro")
 
-# Servir a imagem processada
-@app.route('/uploads/<filename>')
-def uploaded_file(filename):
-    return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
+uploaded_file = st.file_uploader("Escolha uma imagem", type=["png", "jpg", "jpeg", "gif"])
 
-if __name__ == "__main__":
-    app.run(debug=True)
+if uploaded_file is not None:
+    image = Image.open(uploaded_file)
+
+    st.image(image, caption='Imagem carregada', use_column_width=True)
+    st.write("Processando...")
+
+    processed_image, detected_texts = process_image(image)
+
+    st.image(processed_image, caption='Imagem Processada', use_column_width=True)
+
+    st.write("Textos Detectados:")
+    for text, confidence in detected_texts:
+        st.write(f"**Texto:** {text}")
+        st.write(f"**Confiança:** {confidence*100:.2f}%")
